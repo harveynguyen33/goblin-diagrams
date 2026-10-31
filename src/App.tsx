@@ -343,7 +343,7 @@ export default function App() {
   // read by this same component's <ReactFlow> props and its one keydown
   // handler, so a hook in choreography.ts would add an indirection layer with a
   // single call site and no shared logic. Persistence follows the established
-  // convention here (`diagram-studio:edge-path`, `diagram-studio:tour-seen`):
+  // convention here (`diagram-studio:edge-path`, `diagram-studio:read-only`):
   // one namespaced key, read once in a lazy `useState` initialiser that never
   // throws when storage is unavailable, defaulting to OFF.
   //
@@ -515,7 +515,7 @@ export default function App() {
   // ---- G: the default edge path. `smoothstep` until the user changes an edge's
   // curvature in the inspector, at which point that choice becomes the default
   // for every edge drawn afterwards. Same convention as
-  // `diagram-studio:tour-seen` / `diagram-studio:theme`: one namespaced key, read
+  // `diagram-studio:theme`: one namespaced key, read
   // once through a lazy `useState` initialiser that never throws when storage is
   // unavailable. An absent or unparseable value reads as `smoothstep`.
   const EDGE_PATH_KEY = 'diagram-studio:edge-path';
@@ -558,7 +558,13 @@ export default function App() {
   }, []);
 
   // ---- H1/H2: onboarding — guided tour + getting-started checklist ----
-  const TOUR_SEEN_KEY = 'diagram-studio:tour-seen';
+  /* ONBOARD-P1 — the tour NO LONGER auto-starts and keeps NO persistence. The old
+     first-visit effect wrote the `tour-seen` flag at MOUNT, i.e. before step 1 was
+     ever painted (docs/PHASE-0-WALKTHROUGH.md §4 D1 measured the flag already "1"
+     with zero interaction), so every visitor was recorded as having read a tour they
+     may have bailed out of on the first card — and completion could never be
+     measured. It now opens ONLY from the ? sheet's "Take a tour" button, always at
+     step 1, and closing it (Done or Skip) writes nothing, so it stays re-openable. */
   const [tourOpen, setTourOpen] = useState(false);
   /* ROUND BI, ITEM 3 — ONE feedback dialog for the whole app: the ? help sheet
      and Settings → About both open THIS one. `feedbackReturn` is the element
@@ -573,20 +579,10 @@ export default function App() {
   /** Discrete "user did it" signals for the checklist (idempotent per task). */
   const [doneSignal, setDoneSignal] = useState<ChecklistTaskId | null>(null);
   const tickTask = useCallback((id: ChecklistTaskId) => { setDoneSignal(id); }, []);
-  const tourFinished = useCallback(() => {
-    setTourOpen(false);
-    try { localStorage.setItem(TOUR_SEEN_KEY, '1'); } catch { /* ignore */ }
-  }, []);
-  // First visit: auto-start the tour once (persisted). Runs only after the
-  // initial mount so StrictMode's double-effect doesn't restart it.
-  useEffect(() => {
-    let seen = false;
-    try { seen = localStorage.getItem(TOUR_SEEN_KEY) === '1'; } catch { /* ignore */ }
-    if (!seen) {
-      try { localStorage.setItem(TOUR_SEEN_KEY, '1'); } catch { /* ignore */ }
-      setTourOpen(true);
-    }
-  }, []);
+  /** Close the tour. ONE callback shared by Done and Skip, stable identity so the
+   *  overlay's own step effects (which depend on `onDone`) do not re-run on every
+   *  App render — and it writes nothing, so the tour has no persistence at all. */
+  const closeTour = useCallback(() => setTourOpen(false), []);
 
   // ---- multi-document boards (disk-backed via dev-server API) ----
   const [curBoard, setCurBoard] = useState<BoardDoc | null>(null);
@@ -4309,11 +4305,11 @@ const onBend = useCallback((id: string, W: Pt, phase: BendPhase, dx: number, dy:
           hasSecondBoard={boardList.length >= 2}
         />
 
-        {/* H1: guided tour overlay */}
+        {/* H1: guided tour overlay — ONBOARD-P1: on request only, never on first visit */}
         {tourOpen && (
           <Tour
-            onDone={tourFinished}
-            onSkip={tourFinished}
+            onDone={closeTour}
+            onSkip={closeTour}
           />
         )}
 
